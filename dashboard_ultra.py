@@ -56,6 +56,7 @@ def verificar_login(username, senha):
         return True, result[1]
     return False, None
 
+@st.cache_data
 def carregar_usuarios(filtro_nome=None, filtro_email=None, filtro_faixa=None):
     query = "SELECT * FROM usuarios WHERE 1=1"
     params = []
@@ -68,7 +69,7 @@ def carregar_usuarios(filtro_nome=None, filtro_email=None, filtro_faixa=None):
     
     df = pd.read_sql_query(query, conn, params=params)
     df.columns = [c.lower() for c in df.columns]
-    
+
     if filtro_faixa and not df.empty:
         bins = [0,20,40,60,120]
         labels = ["0-20","21-40","41-60","61+"]
@@ -155,15 +156,16 @@ else:
 if st.session_state.logged_in:
     st.title("Dashboard Ultra-Profissional de Usuários")
 
-    # Filtros
+    # --- Filtros ---
     st.sidebar.subheader("Filtros Avançados")
     filtro_nome = st.sidebar.text_input("Nome")
     filtro_email = st.sidebar.text_input("Email")
     filtro_faixa = st.sidebar.selectbox("Faixa etária", [None,"0-20","21-40","41-60","61+"])
     
+    # --- Carrega dados com cache ---
     df = carregar_usuarios(filtro_nome, filtro_email, filtro_faixa)
 
-    # Admin
+    # --- Área administrativa ---
     if st.session_state.role == "admin":
         with st.expander("Adicionar Usuário"):
             nome = st.text_input("Nome", key="nome_add")
@@ -184,38 +186,26 @@ if st.session_state.logged_in:
             if st.button("Exportar CSV"):
                 exportar_csv(df)
 
-    # Lista de usuários
+    # --- Tabela de usuários otimizada ---
     st.subheader("Lista de Usuários")
     if not df.empty:
-        for _, row in df.iterrows():
-            col1,col2,col3,col4,col5 = st.columns([1,2,2,1,1])
-            col1.write(row.get('id'))
-            col2.write(row.get('nome'))
-            col3.write(row.get('email'))
-            col4.write(row.get('idade'))
-
-            if st.session_state.role == "admin":
-                if col5.button("Deletar", key=f"del_{row.get('id')}"):
-                    deletar_usuario(row.get('id'), st.session_state.user)
-                    st.experimental_rerun()
+        st.dataframe(df[['id','nome','email','idade']], use_container_width=True)
     else:
         st.info("Nenhum usuário encontrado.")
 
-    # Gráficos
+    # --- Gráficos ---
     st.subheader("Gráficos Interativos")
-    if not df.empty:
-        if 'idade' in df.columns:
-            fig1 = px.bar(df['idade'].value_counts().sort_index(),
-                          labels={'index':'Idade','value':'Quantidade'},
-                          title="Distribuição de Idades")
-            st.plotly_chart(fig1, use_container_width=True)
+    if not df.empty and 'idade' in df.columns:
+        # Distribuição de idades
+        fig1 = px.histogram(df, x='idade', nbins=20, title="Distribuição de Idades")
+        st.plotly_chart(fig1, use_container_width=True)
 
-            bins = [0,20,40,60,120]; labels = ["0-20","21-40","41-60","61+"]
-            df['faixa'] = pd.cut(df['idade'], bins=bins, labels=labels)
-            fig2 = px.pie(df['faixa'].value_counts(),
-                          names=df['faixa'].value_counts().index,
-                          values=df['faixa'].value_counts().values,
-                          title="Proporção Faixas Etárias")
-            st.plotly_chart(fig2, use_container_width=True)
+        # Faixas etárias
+        bins = [0,20,40,60,120]
+        labels = ["0-20","21-40","41-60","61+"]
+        df['faixa'] = pd.cut(df['idade'], bins=bins, labels=labels)
+        fig2 = px.pie(df['faixa'].value_counts(), values=df['faixa'].value_counts().values,
+                      names=df['faixa'].value_counts().index, title="Proporção Faixas Etárias")
+        st.plotly_chart(fig2, use_container_width=True)
 else:
     st.warning("Faça login para acessar o dashboard.")
