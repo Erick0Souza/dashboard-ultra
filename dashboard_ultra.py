@@ -6,7 +6,7 @@ from datetime import datetime
 import bcrypt
 import os
 
-# --- Banco de Dados no Streamlit Cloud ---
+# --- Banco de Dados ---
 DB_FILE = "usuarios.db"
 conn = sqlite3.connect(DB_FILE, check_same_thread=False)
 cursor = conn.cursor()
@@ -50,7 +50,7 @@ if cursor.fetchone() is None:
     cursor.execute("INSERT INTO auth (username, senha_hash, role) VALUES (?,?,?)", ("admin", senha_hash, "admin"))
     conn.commit()
 
-# --- Funções (mesmas do dashboard anterior) ---
+# --- Funções ---
 def verificar_login(username, senha):
     cursor.execute("SELECT senha_hash, role FROM auth WHERE username=?", (username,))
     result = cursor.fetchone()
@@ -114,7 +114,7 @@ def importar_csv(file, usuario):
         try:
             agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             cursor.execute('INSERT OR IGNORE INTO usuarios (id,nome,email,idade,criado_em,criado_por) VALUES (?,?,?,?,?,?)',
-                           (row['ID'], row['Nome'], row['Email'], row['Idade'], agora, usuario))
+                           (row['id'], row['nome'], row['email'], row['idade'], agora, usuario))
         except:
             pass
     conn.commit()
@@ -190,18 +190,21 @@ if st.session_state.logged_in:
     if not df.empty:
         for _, row in df.iterrows():
             col1,col2,col3,col4,col5 = st.columns([1,2,2,1,1])
-            col1.write(row['ID']); col2.write(row['nome']); col3.write(row['email']); col4.write(row['idade'])
+            col1.write(row['id'])
+            col2.write(row['nome'])
+            col3.write(row['email'])
+            col4.write(row['idade'])
             
             if st.session_state.role == "admin":
-                if col5.button("Deletar", key=f"del_{row['ID']}"):
-                    deletar_usuario(row['ID'], st.session_state.user)
+                if col5.button("Deletar", key=f"del_{row['id']}"):
+                    deletar_usuario(row['id'], st.session_state.user)
                     st.experimental_rerun()
-                if col5.button("Atualizar", key=f"upd_{row['ID']}"):
-                    new_nome = st.text_input(f"Novo nome {row['ID']}", value=row['nome'], key=f"n_{row['ID']}")
-                    new_email = st.text_input(f"Novo email {row['ID']}", value=row['email'], key=f"e_{row['ID']}")
-                    new_idade = st.number_input(f"Nova idade {row['ID']}", value=row['idade'], min_value=0, max_value=120, key=f"i_{row['ID']}")
-                    if st.button("Salvar Alteração", key=f"save_{row['ID']}"):
-                        atualizar_usuario(row['ID'], new_nome, new_email, new_idade, st.session_state.user)
+                if col5.button("Atualizar", key=f"upd_{row['id']}"):
+                    new_nome = st.text_input(f"Novo nome {row['id']}", value=row['nome'], key=f"n_{row['id']}")
+                    new_email = st.text_input(f"Novo email {row['id']}", value=row['email'], key=f"e_{row['id']}")
+                    new_idade = st.number_input(f"Nova idade {row['id']}", value=row['idade'], min_value=0, max_value=120, key=f"i_{row['id']}")
+                    if st.button("Salvar Alteração", key=f"save_{row['id']}"):
+                        atualizar_usuario(row['id'], new_nome, new_email, new_idade, st.session_state.user)
                         st.experimental_rerun()
     else:
         st.info("Nenhum usuário encontrado.")
@@ -226,7 +229,7 @@ if st.session_state.logged_in:
         st.plotly_chart(fig4, use_container_width=True)
 
         st.markdown(f"**Total:** {len(df)} | **Média:** {df['idade'].mean():.1f} | **Mínimo:** {df['idade'].min()} | **Máximo:** {df['idade'].max()}")
-    
+
     # --- Histórico ---
     st.subheader("Histórico de Alterações")
     df_hist = pd.read_sql_query("SELECT * FROM historico ORDER BY timestamp DESC", conn)
