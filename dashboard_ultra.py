@@ -59,18 +59,19 @@ def verificar_login(username, senha):
 def carregar_usuarios(filtro_nome=None, filtro_email=None, filtro_faixa=None):
     query = "SELECT * FROM usuarios WHERE 1=1"
     params = []
-    if filtro_nome: 
+    if filtro_nome:
         query += " AND nome LIKE ?"
         params.append(f"%{filtro_nome}%")
-    if filtro_email: 
+    if filtro_email:
         query += " AND email LIKE ?"
         params.append(f"%{filtro_email}%")
     
     df = pd.read_sql_query(query, conn, params=params)
-    df.columns = [c.lower() for c in df.columns]  # padroniza nomes de colunas
+    df.columns = [c.lower() for c in df.columns]
     
-    if filtro_faixa:
-        bins = [0,20,40,60,120]; labels = ["0-20","21-40","41-60","61+"]
+    if filtro_faixa and not df.empty:
+        bins = [0,20,40,60,120]
+        labels = ["0-20","21-40","41-60","61+"]
         df['faixa'] = pd.cut(df['idade'], bins=bins, labels=labels)
         df = df[df['faixa'] == filtro_faixa]
     return df
@@ -87,8 +88,7 @@ def adicionar_usuario(nome, email, idade, criado_por):
         cursor.execute("INSERT INTO usuarios (nome,email,idade,criado_em,criado_por) VALUES (?,?,?,?,?)",
                        (nome,email,int(idade),agora,criado_por))
         conn.commit()
-        ultimo_id = cursor.lastrowid
-        registrar_historico("adicionar", criado_por, ultimo_id)
+        registrar_historico("adicionar", criado_por, cursor.lastrowid)
         st.success("Usuário adicionado!")
     except sqlite3.IntegrityError:
         st.error("Email já cadastrado!")
@@ -155,7 +155,7 @@ else:
 if st.session_state.logged_in:
     st.title("Dashboard Ultra-Profissional de Usuários")
 
-    # --- Filtros ---
+    # Filtros
     st.sidebar.subheader("Filtros Avançados")
     filtro_nome = st.sidebar.text_input("Nome")
     filtro_email = st.sidebar.text_input("Email")
@@ -163,7 +163,7 @@ if st.session_state.logged_in:
     
     df = carregar_usuarios(filtro_nome, filtro_email, filtro_faixa)
 
-    # --- Admin ---
+    # Admin
     if st.session_state.role == "admin":
         with st.expander("Adicionar Usuário"):
             nome = st.text_input("Nome", key="nome_add")
@@ -176,7 +176,6 @@ if st.session_state.logged_in:
                 else:
                     st.error("Preencha todos os campos!")
 
-        # CSV
         with st.expander("Importar/Exportar CSV"):
             uploaded_file = st.file_uploader("Importar CSV", type="csv")
             if uploaded_file:
@@ -185,7 +184,7 @@ if st.session_state.logged_in:
             if st.button("Exportar CSV"):
                 exportar_csv(df)
 
-    # --- Lista de usuários ---
+    # Lista de usuários
     st.subheader("Lista de Usuários")
     if not df.empty:
         for _, row in df.iterrows():
@@ -202,15 +201,21 @@ if st.session_state.logged_in:
     else:
         st.info("Nenhum usuário encontrado.")
 
-    # --- Gráficos ---
+    # Gráficos
     st.subheader("Gráficos Interativos")
     if not df.empty:
-        fig1 = px.bar(df['idade'].value_counts().sort_index(), labels={'index':'Idade','value':'Quantidade'}, title="Distribuição de Idades")
-        st.plotly_chart(fig1, use_container_width=True)
+        if 'idade' in df.columns:
+            fig1 = px.bar(df['idade'].value_counts().sort_index(),
+                          labels={'index':'Idade','value':'Quantidade'},
+                          title="Distribuição de Idades")
+            st.plotly_chart(fig1, use_container_width=True)
 
-        bins = [0,20,40,60,120]; labels = ["0-20","21-40","41-60","61+"]
-        df['faixa'] = pd.cut(df['idade'], bins=bins, labels=labels)
-        fig2 = px.pie(df['faixa'].value_counts(), names=df['faixa'].value_counts().index, values=df['faixa'].value_counts().values, title="Proporção Faixas Etárias")
-        st.plotly_chart(fig2, use_container_width=True)
+            bins = [0,20,40,60,120]; labels = ["0-20","21-40","41-60","61+"]
+            df['faixa'] = pd.cut(df['idade'], bins=bins, labels=labels)
+            fig2 = px.pie(df['faixa'].value_counts(),
+                          names=df['faixa'].value_counts().index,
+                          values=df['faixa'].value_counts().values,
+                          title="Proporção Faixas Etárias")
+            st.plotly_chart(fig2, use_container_width=True)
 else:
     st.warning("Faça login para acessar o dashboard.")
