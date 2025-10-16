@@ -4,14 +4,12 @@ import streamlit as st
 import plotly.express as px
 from datetime import datetime
 import bcrypt
-import os
 
 # --- Banco de Dados ---
-DB_FILE = "usuarios.db"
-conn = sqlite3.connect(DB_FILE, check_same_thread=False)
+conn = sqlite3.connect('usuarios.db', check_same_thread=False)
 cursor = conn.cursor()
 
-# Tabelas
+# --- Criação de tabelas ---
 cursor.execute('''
 CREATE TABLE IF NOT EXISTS usuarios (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -43,7 +41,7 @@ CREATE TABLE IF NOT EXISTS historico (
 ''')
 conn.commit()
 
-# --- Inicializar admin se não existir ---
+# --- Inicializa admin ---
 cursor.execute("SELECT * FROM auth WHERE username='admin'")
 if cursor.fetchone() is None:
     senha_hash = bcrypt.hashpw("admin123".encode(), bcrypt.gensalt())
@@ -61,9 +59,16 @@ def verificar_login(username, senha):
 def carregar_usuarios(filtro_nome=None, filtro_email=None, filtro_faixa=None):
     query = "SELECT * FROM usuarios WHERE 1=1"
     params = []
-    if filtro_nome: query += " AND nome LIKE ?"; params.append(f"%{filtro_nome}%")
-    if filtro_email: query += " AND email LIKE ?"; params.append(f"%{filtro_email}%")
+    if filtro_nome: 
+        query += " AND nome LIKE ?"
+        params.append(f"%{filtro_nome}%")
+    if filtro_email: 
+        query += " AND email LIKE ?"
+        params.append(f"%{filtro_email}%")
+    
     df = pd.read_sql_query(query, conn, params=params)
+    df.columns = [c.lower() for c in df.columns]  # padroniza nomes de colunas
+    
     if filtro_faixa:
         bins = [0,20,40,60,120]; labels = ["0-20","21-40","41-60","61+"]
         df['faixa'] = pd.cut(df['idade'], bins=bins, labels=labels)
@@ -105,16 +110,20 @@ def atualizar_usuario(user_id, nome, email, idade, usuario):
         st.error("Email já cadastrado!")
 
 def exportar_csv(df):
-    df.to_csv("usuarios_export.csv", index=False)
-    st.success("Dados exportados para usuarios_export.csv")
+    if not df.empty:
+        df.to_csv("usuarios_export.csv", index=False)
+        st.success("Dados exportados para usuarios_export.csv")
+    else:
+        st.warning("Não há dados para exportar.")
 
 def importar_csv(file, usuario):
     df = pd.read_csv(file)
+    df.columns = [c.lower() for c in df.columns]
     for _, row in df.iterrows():
         try:
             agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             cursor.execute('INSERT OR IGNORE INTO usuarios (id,nome,email,idade,criado_em,criado_por) VALUES (?,?,?,?,?,?)',
-                           (row['id'], row['nome'], row['email'], row['idade'], agora, usuario))
+                           (row.get('id'), row.get('nome'), row.get('email'), row.get('idade'), agora, usuario))
         except:
             pass
     conn.commit()
@@ -145,7 +154,7 @@ else:
 # --- Dashboard ---
 if st.session_state.logged_in:
     st.title("Dashboard Ultra-Profissional de Usuários")
-    
+
     # --- Filtros ---
     st.sidebar.subheader("Filtros Avançados")
     filtro_nome = st.sidebar.text_input("Nome")
@@ -153,26 +162,17 @@ if st.session_state.logged_in:
     filtro_faixa = st.sidebar.selectbox("Faixa etária", [None,"0-20","21-40","41-60","61+"])
     
     df = carregar_usuarios(filtro_nome, filtro_email, filtro_faixa)
-    
+
     # --- Admin ---
     if st.session_state.role == "admin":
         with st.expander("Adicionar Usuário"):
             nome = st.text_input("Nome", key="nome_add")
             email = st.text_input("Email", key="email_add")
             idade = st.number_input("Idade", min_value=0, max_value=120, step=1, key="idade_add")
-            username = st.text_input("Login do usuário", key="username_add")
-            senha = st.text_input("Senha do usuário", type="password", key="senha_add")
             if st.button("Adicionar Usuário"):
-                if nome and email and username and senha:
-                    senha_hash = bcrypt.hashpw(senha.encode(), bcrypt.gensalt())
-                    try:
-                        cursor.execute("INSERT INTO auth (username, senha_hash, role) VALUES (?,?,?)",
-                                       (username, senha_hash, "user"))
-                        conn.commit()
-                        adicionar_usuario(nome, email, idade, st.session_state.user)
-                        st.experimental_rerun()
-                    except sqlite3.IntegrityError:
-                        st.error("Login já existe!")
+                if nome and email:
+                    adicionar_usuario(nome,email,idade, st.session_state.user)
+                    st.experimental_rerun()
                 else:
                     st.error("Preencha todos os campos!")
 
@@ -190,22 +190,15 @@ if st.session_state.logged_in:
     if not df.empty:
         for _, row in df.iterrows():
             col1,col2,col3,col4,col5 = st.columns([1,2,2,1,1])
-            col1.write(row['id'])
-            col2.write(row['nome'])
-            col3.write(row['email'])
-            col4.write(row['idade'])
-            
+            col1.write(row.get('id'))
+            col2.write(row.get('nome'))
+            col3.write(row.get('email'))
+            col4.write(row.get('idade'))
+
             if st.session_state.role == "admin":
-                if col5.button("Deletar", key=f"del_{row['id']}"):
-                    deletar_usuario(row['id'], st.session_state.user)
+                if col5.button("Deletar", key=f"del_{row.get('id')}"):
+                    deletar_usuario(row.get('id'), st.session_state.user)
                     st.experimental_rerun()
-                if col5.button("Atualizar", key=f"upd_{row['id']}"):
-                    new_nome = st.text_input(f"Novo nome {row['id']}", value=row['nome'], key=f"n_{row['id']}")
-                    new_email = st.text_input(f"Novo email {row['id']}", value=row['email'], key=f"e_{row['id']}")
-                    new_idade = st.number_input(f"Nova idade {row['id']}", value=row['idade'], min_value=0, max_value=120, key=f"i_{row['id']}")
-                    if st.button("Salvar Alteração", key=f"save_{row['id']}"):
-                        atualizar_usuario(row['id'], new_nome, new_email, new_idade, st.session_state.user)
-                        st.experimental_rerun()
     else:
         st.info("Nenhum usuário encontrado.")
 
@@ -219,20 +212,5 @@ if st.session_state.logged_in:
         df['faixa'] = pd.cut(df['idade'], bins=bins, labels=labels)
         fig2 = px.pie(df['faixa'].value_counts(), names=df['faixa'].value_counts().index, values=df['faixa'].value_counts().values, title="Proporção Faixas Etárias")
         st.plotly_chart(fig2, use_container_width=True)
-
-        df_sorted = df.sort_values('id')
-        medias = df_sorted['idade'].expanding().mean()
-        fig3 = px.line(medias, labels={'index':'Qtd Usuários','y':'Idade média'}, title="Tendência de Idade Média")
-        st.plotly_chart(fig3, use_container_width=True)
-
-        fig4 = px.box(df, y='idade', points="all", title="Boxplot de Idades")
-        st.plotly_chart(fig4, use_container_width=True)
-
-        st.markdown(f"**Total:** {len(df)} | **Média:** {df['idade'].mean():.1f} | **Mínimo:** {df['idade'].min()} | **Máximo:** {df['idade'].max()}")
-
-    # --- Histórico ---
-    st.subheader("Histórico de Alterações")
-    df_hist = pd.read_sql_query("SELECT * FROM historico ORDER BY timestamp DESC", conn)
-    st.dataframe(df_hist)
 else:
     st.warning("Faça login para acessar o dashboard.")
